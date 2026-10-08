@@ -10,7 +10,10 @@ export async function GET() {
   }
 
   try {
-    const matches = await getTodayMatches();
+    const all = await getTodayMatches();
+    const matches = all.filter(
+      (m) => m.status === "SCHEDULED" || m.status === "TIMED"
+    );
     return NextResponse.json({ matches });
   } catch (error) {
     console.error("Failed to fetch matches:", error);
