@@ -1,50 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, RefreshCw } from "lucide-react";
 import type { MatchAnalysisData } from "@/lib/types";
+import {
+  getAnalysisState,
+  generateAnalysis,
+  subscribe,
+  type AnalysisResult,
+} from "@/lib/match-cache";
 
 interface AnalysisTabProps {
+  matchId: string;
   data: MatchAnalysisData;
 }
 
-interface BetPrediction {
-  market: string;
-  prediction: string;
-  confidence: "high" | "medium" | "low";
-  reasoning: string;
-}
+export function AnalysisTab({ matchId, data }: AnalysisTabProps) {
+  const [, tick] = useState(0);
 
-interface AnalysisResult {
-  summary: string;
-  predictions: BetPrediction[];
-  playerNews: string | null;
-}
+  useEffect(() => {
+    return subscribe(matchId, () => tick((n) => n + 1));
+  }, [matchId]);
 
-export function AnalysisTab({ data }: AnalysisTabProps) {
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const state = getAnalysisState(matchId);
+  const { result: analysis, loading, error } = state;
 
-  const generateAnalysis = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchData: data }),
-      });
-      if (!res.ok) throw new Error("Failed to generate analysis");
-      const json = await res.json();
-      setAnalysis(json);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleGenerate = () => generateAnalysis(matchId, data);
+  const handleRegenerate = () => generateAnalysis(matchId, data, true);
 
   const confidenceColor = (c: string) => {
     switch (c) {
@@ -66,7 +49,7 @@ export function AnalysisTab({ data }: AnalysisTabProps) {
       transition={{ duration: 0.3 }}
       className="space-y-6"
     >
-      {!analysis && !loading && (
+      {!analysis && !loading && !error && (
         <div className="py-12 text-center">
           <Sparkles className="mx-auto h-10 w-10 text-emerald-400/50" />
           <p className="mt-4 text-sm text-zinc-400">
@@ -75,7 +58,7 @@ export function AnalysisTab({ data }: AnalysisTabProps) {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={generateAnalysis}
+            onClick={handleGenerate}
             className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-emerald-400"
           >
             <Sparkles className="h-4 w-4" />
@@ -93,14 +76,17 @@ export function AnalysisTab({ data }: AnalysisTabProps) {
           <p className="mt-3 text-sm text-zinc-500">
             Analyzing match data and player stats...
           </p>
+          <p className="mt-1 text-[10px] text-zinc-600">
+            You can switch tabs — this runs in the background
+          </p>
         </div>
       )}
 
-      {error && (
+      {error && !loading && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-center">
           <p className="text-sm text-red-400">{error}</p>
           <button
-            onClick={generateAnalysis}
+            onClick={handleGenerate}
             className="mt-2 text-xs text-zinc-400 underline hover:text-zinc-300"
           >
             Try again
@@ -108,7 +94,7 @@ export function AnalysisTab({ data }: AnalysisTabProps) {
         </div>
       )}
 
-      {analysis && (
+      {analysis && !loading && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -172,12 +158,15 @@ export function AnalysisTab({ data }: AnalysisTabProps) {
 
           {/* Regenerate */}
           <div className="text-center">
-            <button
-              onClick={generateAnalysis}
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleRegenerate}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-1.5 text-xs text-zinc-500 transition-colors hover:border-white/20 hover:text-zinc-300"
             >
+              <RefreshCw className="h-3 w-3" />
               Regenerate analysis
-            </button>
+            </motion.button>
           </div>
         </motion.div>
       )}

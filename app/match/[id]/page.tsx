@@ -189,7 +189,7 @@ export default function MatchDetailPage() {
           <LineupsTab key="lineups" data={data} />
         )}
         {activeTab === "Analysis" && (
-          <AnalysisTab key="analysis" data={data} />
+          <AnalysisTab key="analysis" matchId={params.id as string} data={data} />
         )}
       </AnimatePresence>
     </div>

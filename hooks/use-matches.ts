@@ -2,6 +2,11 @@
 
 import { useState, useEffect } from "react";
 import type { Match, MatchAnalysisData } from "@/lib/types";
+import {
+  getCachedMatch,
+  setCachedMatch,
+  updateCachedMatchData,
+} from "@/lib/match-cache";
 
 export function useTodayMatches() {
   const [matches, setMatches] = useState<Match[]>([]);
@@ -183,6 +188,14 @@ export function useMatchAnalysis(matchId: string) {
   const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
+    const cached = getCachedMatch(matchId);
+    if (cached) {
+      setData(cached.data);
+      setBudget(cached.budget);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
@@ -206,8 +219,10 @@ export function useMatchAnalysis(matchId: string) {
         if (!res.ok) throw new Error("Failed to fetch match data");
         const json = await res.json();
         const analysis: MatchAnalysisData = json.analysis;
+        const budgetVal = json.budget?.remaining ?? null;
         setData(analysis);
-        setBudget(json.budget?.remaining ?? null);
+        setBudget(budgetVal);
+        setCachedMatch(matchId, analysis, budgetVal);
 
         const needsEnrichment =
           !analysis.homeTeam.bestFormPlayer ||
@@ -232,21 +247,25 @@ export function useMatchAnalysis(matchId: string) {
               const json = await enrichRes.json();
               if (!json.error) {
                 const enrichment = json as EnrichmentResponse;
-                setData((prev) =>
-                  prev ? applyEnrichment(prev, enrichment) : prev
-                );
+                setData((prev) => {
+                  if (!prev) return prev;
+                  const enriched = applyEnrichment(prev, enrichment);
+                  updateCachedMatchData(matchId, enriched);
+                  return enriched;
+                });
               }
             }
           } catch {
-            // Enrichment is optional — silently continue
+            // Enrichment is optional
           } finally {
             setEnriching(false);
           }
         }
       } catch (err) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     fetchAnalysis();
