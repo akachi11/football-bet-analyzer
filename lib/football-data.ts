@@ -9,36 +9,20 @@ import type {
 
 const BASE_URL = "https://api.football-data.org/v4";
 
-const requestTimestamps: number[] = [];
 const inflightRequests = new Map<string, Promise<unknown>>();
-
-async function rateLimit(): Promise<void> {
-  const now = Date.now();
-  while (requestTimestamps.length > 0 && now - requestTimestamps[0] > 60000) {
-    requestTimestamps.shift();
-  }
-  if (requestTimestamps.length >= 10) {
-    const waitMs = 60000 - (now - requestTimestamps[0]);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
-  requestTimestamps.push(Date.now());
-}
 
 async function fdFetch<T>(endpoint: string): Promise<T> {
   const inflight = inflightRequests.get(endpoint);
   if (inflight) return inflight as Promise<T>;
 
   const promise = (async () => {
-    await rateLimit();
-
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       headers: { "X-Auth-Token": process.env.FOOTBALL_DATA_API_KEY! },
       cache: "no-store",
     });
 
     if (res.status === 429) {
-      await new Promise((resolve) => setTimeout(resolve, 60000));
-      return fdFetch<T>(endpoint);
+      throw new Error("Football-Data API 429: rate limited");
     }
 
     if (!res.ok) {
@@ -303,19 +287,22 @@ export async function getTeamCompetitions(
 }
 
 export async function getAllCompScorers(
-  teamId: number
+  teamId: number,
+  skipCode?: string
 ): Promise<CompetitionScorer[]> {
   const cacheKey = `fd:allcomp-scorers:${teamId}`;
   const cached = cache.get<CompetitionScorer[]>(cacheKey);
   if (cached) return cached;
 
   const codes = await getTeamCompetitions(teamId);
+  const filteredCodes = (skipCode ? codes.filter((c) => c !== skipCode) : codes)
+    .slice(0, 2);
 
-  const scorersByComp = await Promise.all(
-    codes.map((code) =>
-      getTopScorers(code).catch(() => [] as CompetitionScorer[])
-    )
-  );
+  const scorersByComp: CompetitionScorer[][] = [];
+  for (const code of filteredCodes) {
+    const s = await getTopScorers(code).catch(() => [] as CompetitionScorer[]);
+    scorersByComp.push(s);
+  }
 
   const playerMap = new Map<
     string,

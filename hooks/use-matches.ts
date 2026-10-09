@@ -183,9 +183,22 @@ export function useMatchAnalysis(matchId: string) {
   const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
+      const res = await fetch(url);
+      if (res.status === 500 && retries > 0) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (cancelled) throw new Error("cancelled");
+        return fetchWithRetry(url, retries - 1);
+      }
+      return res;
+    }
+
     async function fetchAnalysis() {
       try {
-        const res = await fetch(`/api/matches/${matchId}`);
+        const res = await fetchWithRetry(`/api/matches/${matchId}`);
+        if (cancelled) return;
         if (res.status === 429) {
           setError("Daily API limit reached. Try again tomorrow.");
           return;
@@ -237,6 +250,7 @@ export function useMatchAnalysis(matchId: string) {
       }
     }
     fetchAnalysis();
+    return () => { cancelled = true; };
   }, [matchId]);
 
   return { data, loading, error, budget, enriching };

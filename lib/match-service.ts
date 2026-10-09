@@ -30,26 +30,30 @@ export async function getMatchAnalysis(
   const compCode = match.competition.code;
   const compConfig = COMPETITION_MAP[compCode];
 
-  const [
-    headToHead,
-    standings,
-    scorers,
-    homeFDMatches,
-    awayFDMatches,
-    homeAllCompScorers,
-    awayAllCompScorers,
-  ] = await Promise.all([
-    fd.getHeadToHead(matchId),
-    compConfig
-      ? fd.getStandings(compCode).catch(() => [])
-      : Promise.resolve([]),
-    compConfig
-      ? fd.getTopScorers(compCode).catch(() => [])
-      : Promise.resolve([]),
-    fd.getTeamRecentMatches(match.homeTeam.id, 5),
-    fd.getTeamRecentMatches(match.awayTeam.id, 5),
-    fd.getAllCompScorers(match.homeTeam.id).catch(() => []),
-    fd.getAllCompScorers(match.awayTeam.id).catch(() => []),
+  const emptyH2H = {
+    totalMatches: 0,
+    homeTeamWins: 0,
+    awayTeamWins: 0,
+    draws: 0,
+    recentMeetings: [],
+  };
+
+  const [headToHead, standings, scorers, homeFDMatches, awayFDMatches] =
+    await Promise.all([
+      fd.getHeadToHead(matchId).catch(() => emptyH2H),
+      compConfig
+        ? fd.getStandings(compCode).catch(() => [])
+        : Promise.resolve([]),
+      compConfig
+        ? fd.getTopScorers(compCode).catch(() => [])
+        : Promise.resolve([]),
+      fd.getTeamRecentMatches(match.homeTeam.id, 5).catch(() => []),
+      fd.getTeamRecentMatches(match.awayTeam.id, 5).catch(() => []),
+    ]);
+
+  const [homeAllCompScorers, awayAllCompScorers] = await Promise.all([
+    fd.getAllCompScorers(match.homeTeam.id, compCode).catch(() => []),
+    fd.getAllCompScorers(match.awayTeam.id, compCode).catch(() => []),
   ]);
 
   const homeAfId = await af.resolveTeamId(match.homeTeam.name);
@@ -104,7 +108,7 @@ export async function getMatchAnalysis(
     homeFDMatches,
     scorers,
     homeInjuries,
-    homeAllCompScorers
+    mergeAllCompScorers(homeAllCompScorers, scorers, match.homeTeam.id)
   );
 
   const awayTeam = buildTeamAnalysis(
@@ -113,10 +117,29 @@ export async function getMatchAnalysis(
     awayFDMatches,
     scorers,
     awayInjuries,
-    awayAllCompScorers
+    mergeAllCompScorers(awayAllCompScorers, scorers, match.awayTeam.id)
   );
 
   return { match, headToHead, homeTeam, awayTeam, lineups };
+}
+
+function mergeAllCompScorers(
+  otherCompScorers: CompetitionScorer[],
+  mainCompScorers: CompetitionScorer[],
+  teamId: number
+): CompetitionScorer[] {
+  const playerMap = new Map<string, CompetitionScorer>();
+  for (const s of [...otherCompScorers, ...mainCompScorers.filter((sc) => sc.team.id === teamId)]) {
+    const existing = playerMap.get(s.player.name);
+    if (existing) {
+      existing.goals += s.goals;
+      existing.assists = (existing.assists ?? 0) + (s.assists ?? 0);
+      existing.playedMatches += s.playedMatches;
+    } else {
+      playerMap.set(s.player.name, { ...s });
+    }
+  }
+  return Array.from(playerMap.values()).sort((a, b) => b.goals - a.goals);
 }
 
 // ===== Internal Helpers =====
